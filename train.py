@@ -65,7 +65,7 @@ def iou(pred, target):
     return (inter + 1) / (union + 1)
 
 
-DATASET_ROOT = "./.."
+DATASET_ROOT = "."
 
 images_auth = sorted(glob(f"{DATASET_ROOT}/train_images/authentic/*.png"))
 images_forg = sorted(glob(f"{DATASET_ROOT}/train_images/forged/*.png"))
