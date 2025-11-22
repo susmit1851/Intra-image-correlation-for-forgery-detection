@@ -79,7 +79,7 @@ Loss plot: `plot/loss_plot.png`
 
 Inline plot
 
-![Training and Validation Loss](plot/loss_plot.png)
+![Training and Validation Loss](plot/output.png)
 
 Inference (example)
 The repository does not include a dedicated inference script. A minimal example to load a checkpoint and run inference on an image is provided earlier in this document; adapt that snippet for your use.
