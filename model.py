@@ -1,46 +1,76 @@
 from utils import *
 
-class CmfdInstanceModel(nn.Module):
-    def __init__(self, backbone_name="nvidia/mit-b2",
-                 num_queries=5, d_model=256, nheads=8, num_decoder_layers=2):
+
+
+class ConvCorrelationBlock(nn.Module):
+
+
+    def __init__(self, in_channels, hidden=256):
         super().__init__()
 
+        self.conv3 = nn.Conv2d(in_channels, hidden, kernel_size=3, padding=1)
+        self.conv5 = nn.Conv2d(in_channels, hidden, kernel_size=5, padding=2)
+        self.conv7 = nn.Conv2d(in_channels, hidden, kernel_size=7, padding=3)
+
+        self.refine = nn.Sequential(
+            nn.Conv2d(hidden * 3, hidden, kernel_size=3, padding=1),
+            nn.BatchNorm2d(hidden),
+            nn.ReLU(inplace=True)
+        )
+
+    def forward(self, x):
+        c3 = self.conv3(x)
+        c5 = self.conv5(x)
+        c7 = self.conv7(x)
+
+        corr = torch.cat([c3, c5, c7], dim=1)
+        corr = self.refine(corr)
+        return corr
+
+
+
+class CmfdInstanceModel(nn.Module):
+    
+    def __init__(self, backbone_name="nvidia/mit-b2",
+                 num_queries=5, d_model=256):
+        super().__init__()
         config = SegformerConfig.from_pretrained(backbone_name)
         config.output_hidden_states = True
         self.encoder = SegformerModel.from_pretrained(backbone_name, config=config)
-
         self.proj = nn.Conv2d(config.hidden_sizes[-2], d_model, kernel_size=1)
-        self.query_embed = nn.Embedding(num_queries, d_model)
+        self.corr_block = ConvCorrelationBlock(d_model, hidden=d_model)
+        self.class_head = nn.Sequential(
+            nn.Conv2d(d_model, num_queries, kernel_size=1),
+            nn.AdaptiveAvgPool2d((1, 1))
+        )
 
-        decoder_layer = nn.TransformerDecoderLayer(d_model=d_model, nhead=nheads)
-        self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=num_decoder_layers)
-
-        self.class_head = nn.Linear(d_model, 1)
-        self.mask_head = nn.Conv2d(d_model, num_queries, kernel_size=1)
+        self.mask_head = nn.Sequential(
+            nn.Conv2d(d_model, d_model, kernel_size=3, padding=1),
+            nn.BatchNorm2d(d_model),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(d_model, num_queries, kernel_size=1)
+        )
 
     def forward(self, x):
         B = x.size(0)
 
         enc_out = self.encoder(x)
-        assert enc_out.hidden_states is not None, "Hidden states missing — config not set!"
-
         feats = enc_out.hidden_states[-2]  
+        feats = self.proj(feats)           
 
-        feats = self.proj(feats) 
-        B, C, H, W = feats.shape
+        corr_feats = self.corr_block(feats)
 
-        src = feats.flatten(2).permute(2, 0, 1)  
-        queries = self.query_embed.weight.unsqueeze(1).repeat(1, B, 1)
-
-        hs = self.decoder(queries, src)  
-
-        class_logits = self.class_head(hs).sigmoid().permute(1, 0, 2)  
-        masks = self.mask_head(feats)  
+        masks = self.mask_head(corr_feats)
         masks = F.interpolate(masks, size=x.shape[2:], mode="bilinear", align_corners=False)
+
+        class_map = self.class_head(corr_feats)
+        class_logits = class_map.view(class_map.size(0), -1)  # (B, num_queries)
+
         return {
-            "class_logits": class_logits.squeeze(-1),
-            "mask_logits": masks
+            "mask_logits": masks,
+            "class_logits": class_logits
         }
+
 
 
 

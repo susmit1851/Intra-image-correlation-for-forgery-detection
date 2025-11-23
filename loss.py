@@ -3,11 +3,11 @@ from utils import *
 class DiceLoss(nn.Module):
     def forward(self, pred, target):
         pred = torch.sigmoid(pred)
-        smooth = 1.
+        epsilon = 1.
         inter = (pred * target).sum(dim=(1, 2, 3))
         union = pred.sum(dim=(1, 2, 3)) + target.sum(dim=(1, 2, 3))
         
-        dice_per_sample = 1 - (2. * inter + smooth) / (union + smooth)  
+        dice_per_sample = 1 - (2. * inter + epsilon) / (union + epsilon)  
         return dice_per_sample.mean()   
 
 
